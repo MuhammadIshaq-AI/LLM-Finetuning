@@ -2,7 +2,7 @@
 
 > What if we could take a language model… and teach it something new that it doesn't know yet?
 
-This repository demonstrates **end-to-end fine-tuning** of Large Language Models on custom datasets — from sentiment classification with GPT-2 to domain-specific knowledge injection with Qwen2.5 using LoRA.
+This repository demonstrates **end-to-end fine-tuning** of Large Language Models on custom datasets — from sentiment classification with GPT-2 to domain-specific knowledge injection with Qwen2.5 using LoRA. Includes production-ready scripts for dataset augmentation, model evaluation, merging, and export.
 
 ---
 
@@ -14,6 +14,13 @@ LLM-Finetuning/
 │   ├── fine-tuning-gpt-2.ipynb       # GPT-2 sentiment analysis fine-tuning
 │   ├── fine-tuning-qwen.ipynb        # Qwen2.5-3B LoRA fine-tuning on custom data
 │   └── aicortexo_dataset.json        # Custom prompt-completion dataset (15 samples)
+├── scripts/
+│   ├── dataset_augmentor.py          # Expand small datasets with NLP augmentation
+│   ├── convert_dataset.py            # Convert between fine-tuning dataset formats
+│   ├── evaluate_finetuned.py         # Benchmark fine-tuned vs base model
+│   └── merge_and_export.py           # Merge LoRA adapters & export for production
+├── requirements.txt
+├── .gitignore
 └── README.md
 ```
 
@@ -83,6 +90,133 @@ Fine-tunes **Qwen2.5-3B-Instruct** on a custom dataset to teach the model domain
 
 ---
 
+## 🛠️ Scripts
+
+### 1. Dataset Augmentor
+
+**Script:** [`scripts/dataset_augmentor.py`](scripts/dataset_augmentor.py)
+
+Expands small fine-tuning datasets using NLP augmentation techniques — critical for improving training quality when you only have a handful of examples.
+
+**Techniques:**
+- **Prompt Paraphrasing** — Rewrites questions in multiple styles
+- **Completion Variation** — Adds stylistic diversity to answers
+- **Instruction Format Mixing** — Generates chat-style, instruction-style, and direct formats
+- **Follow-up Generation** — Creates contextual follow-up Q&A pairs
+
+```bash
+# 5x expansion (default)
+python scripts/dataset_augmentor.py \
+  --input notebooks/aicortexo_dataset.json \
+  --output notebooks/aicortexo_augmented.json
+
+# 10x expansion
+python scripts/dataset_augmentor.py \
+  --input notebooks/aicortexo_dataset.json \
+  --output notebooks/aicortexo_augmented.json \
+  --multiplier 10
+```
+
+---
+
+### 2. Dataset Format Converter
+
+**Script:** [`scripts/convert_dataset.py`](scripts/convert_dataset.py)
+
+Converts between common LLM fine-tuning dataset formats so you can use your data with any framework.
+
+**Supported Formats:**
+
+| Format | Structure | Used By |
+|---|---|---|
+| Custom | `{"prompt", "completion"}` | This repo |
+| Alpaca | `{"instruction", "input", "output"}` | Stanford Alpaca, Axolotl |
+| ChatML | `{"messages": [{"role", "content"}]}` | OpenAI, Qwen, Llama 3 |
+| ShareGPT | `{"conversations": [{"from", "value"}]}` | ShareGPT, FastChat |
+| CSV | `instruction,input,output` | Spreadsheet workflows |
+| Text | `User: ...\nAssistant: ...` | Causal LM training |
+
+```bash
+# Convert to ChatML format (for Qwen/Llama chat fine-tuning)
+python scripts/convert_dataset.py \
+  --input notebooks/aicortexo_dataset.json \
+  --input-format custom \
+  --output-format chatml \
+  --output notebooks/aicortexo_chatml.json
+
+# Convert to Alpaca format (for Axolotl/LLaMA-Factory)
+python scripts/convert_dataset.py \
+  --input notebooks/aicortexo_dataset.json \
+  --input-format custom \
+  --output-format alpaca \
+  --output notebooks/aicortexo_alpaca.json
+```
+
+---
+
+### 3. Model Evaluation
+
+**Script:** [`scripts/evaluate_finetuned.py`](scripts/evaluate_finetuned.py)
+
+Comprehensive benchmarking that compares fine-tuned models against the base model to prove training actually worked.
+
+**Metrics:**
+- **Perplexity** — How confident the model is on your data (lower = better)
+- **Exact Match** — Does the response contain the expected answer?
+- **Fuzzy Match** — Keyword overlap scoring for partial matches
+- **BLEU Score** — N-gram precision for generation quality
+- **Latency** — Response time and tokens/second throughput
+
+```bash
+# Evaluate LoRA adapter
+python scripts/evaluate_finetuned.py \
+  --model-path ./notebooks/qwen_lora_adapter \
+  --base-model Qwen/Qwen2.5-3B-Instruct \
+  --dataset notebooks/aicortexo_dataset.json \
+  --mode lora \
+  --compare
+
+# Evaluate merged model
+python scripts/evaluate_finetuned.py \
+  --model-path ./merged_model \
+  --base-model Qwen/Qwen2.5-3B-Instruct \
+  --dataset notebooks/aicortexo_dataset.json \
+  --mode merged \
+  --compare \
+  --output eval_results.json
+```
+
+---
+
+### 4. Merge & Export
+
+**Script:** [`scripts/merge_and_export.py`](scripts/merge_and_export.py)
+
+Merges LoRA adapter weights back into the base model for production deployment — eliminating the adapter dependency and producing a standalone model.
+
+**Capabilities:**
+- Merge LoRA → Full model weights
+- Push to HuggingFace Hub
+- Quick inference validation
+
+```bash
+# Merge and save locally
+python scripts/merge_and_export.py \
+  --base-model Qwen/Qwen2.5-3B-Instruct \
+  --adapter-path ./notebooks/qwen_lora_adapter \
+  --output-dir ./merged_model
+
+# Merge and push to HuggingFace Hub
+python scripts/merge_and_export.py \
+  --base-model Qwen/Qwen2.5-3B-Instruct \
+  --adapter-path ./notebooks/qwen_lora_adapter \
+  --output-dir ./merged_model \
+  --push-to-hub MuhammadIshaq-AI/qwen-aicortexo-finetuned \
+  --test
+```
+
+---
+
 ## 📊 Custom Dataset
 
 The [`aicortexo_dataset.json`](notebooks/aicortexo_dataset.json) contains **15 prompt-completion pairs** covering:
@@ -130,7 +264,7 @@ git clone https://github.com/MuhammadIshaq-AI/LLM-Finetuning.git
 cd LLM-Finetuning
 
 # Install dependencies
-pip install torch transformers datasets accelerate peft bitsandbytes evaluate scikit-learn
+pip install -r requirements.txt
 ```
 
 ### Running the Notebooks
@@ -149,6 +283,37 @@ jupyter notebook
 > login(os.environ["HF_TOKEN"])
 > ```
 
+### Full Workflow Example
+
+```bash
+# 1. Augment your dataset (15 → 75+ samples)
+python scripts/dataset_augmentor.py \
+  --input notebooks/aicortexo_dataset.json \
+  --output notebooks/aicortexo_augmented.json
+
+# 2. Convert to ChatML format for better chat training
+python scripts/convert_dataset.py \
+  --input notebooks/aicortexo_augmented.json \
+  --input-format custom \
+  --output-format chatml \
+  --output notebooks/aicortexo_chatml.json
+
+# 3. Fine-tune using the notebook (fine-tuning-qwen.ipynb)
+
+# 4. Evaluate the fine-tuned model
+python scripts/evaluate_finetuned.py \
+  --model-path ./notebooks/qwen_lora_adapter \
+  --base-model Qwen/Qwen2.5-3B-Instruct \
+  --dataset notebooks/aicortexo_dataset.json \
+  --mode lora --compare
+
+# 5. Merge and export for production
+python scripts/merge_and_export.py \
+  --base-model Qwen/Qwen2.5-3B-Instruct \
+  --adapter-path ./notebooks/qwen_lora_adapter \
+  --output-dir ./merged_model --test
+```
+
 ---
 
 ## 📝 Key Concepts
@@ -159,6 +324,8 @@ jupyter notebook
 | **LoRA** | Freezes the base model and trains small low-rank matrices — drastically reducing trainable parameters |
 | **4-bit Quantization** | Compresses model weights from FP32 → 4-bit, enabling 3B+ models on consumer GPUs |
 | **Gradient Accumulation** | Simulates larger batch sizes by accumulating gradients over multiple forward passes |
+| **Dataset Augmentation** | Expanding small datasets with paraphrasing and format variation to improve training quality |
+| **Model Merging** | Combining LoRA adapter weights back into the base model for standalone deployment |
 
 ---
 
